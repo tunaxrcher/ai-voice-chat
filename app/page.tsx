@@ -4,12 +4,22 @@ import { useState, useRef, useEffect } from "react"
 import { Mic, Square, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
+type VideoState = "default" | "thinking" | "saying"
+
+const VIDEO_SOURCES = {
+  default: "/ai_default.mp4",
+  thinking: "/thinking.mp4", 
+  saying: "/ai_saying.mp4"
+}
+
 export default function AIVoiceChat() {
   const [isRecording, setIsRecording] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const [statusMessage, setStatusMessage] = useState("")
   const [isVideoPlaying, setIsVideoPlaying] = useState(false)
   const [processingTime, setProcessingTime] = useState(0)
+  const [currentVideoState, setCurrentVideoState] = useState<VideoState>("default")
+  const [videoOpacity, setVideoOpacity] = useState(1)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
@@ -18,6 +28,7 @@ export default function AIVoiceChat() {
   const streamRef = useRef<MediaStream | null>(null)
   const processingStartTime = useRef<number>(0)
   const processingInterval = useRef<NodeJS.Timeout | null>(null)
+  const audioEndedTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     // Cleanup on unmount
@@ -28,8 +39,107 @@ export default function AIVoiceChat() {
       if (processingInterval.current) {
         clearInterval(processingInterval.current)
       }
+      if (audioEndedTimeoutRef.current) {
+        clearTimeout(audioEndedTimeoutRef.current)
+      }
+      // Clean up audio event listeners
+      if (audioRef.current) {
+        audioRef.current.onerror = null
+        audioRef.current.onloadstart = null
+        audioRef.current.oncanplay = null
+        audioRef.current.onended = null
+      }
     }
   }, [])
+
+  // Initialize default video on component mount
+  useEffect(() => {
+    const initializeDefaultVideo = async () => {
+      if (videoRef.current) {
+        console.log("Initializing default video...")
+        
+        // Set default video source
+        videoRef.current.src = VIDEO_SOURCES.default
+        videoRef.current.currentTime = 0
+        videoRef.current.loop = true // Loop the default video
+        videoRef.current.load()
+        
+        // Try to play the default video
+        try {
+          await videoRef.current.play()
+          console.log("Default video started playing successfully")
+          setIsVideoPlaying(true)
+        } catch (error) {
+          console.log("Default video autoplay blocked, waiting for user interaction:", error)
+          // Video autoplay is blocked, will play after user interaction
+        }
+      }
+    }
+    
+    // Small delay to ensure component is fully mounted
+    setTimeout(initializeDefaultVideo, 100)
+  }, [])
+
+  // Function to switch video with fade effect
+  const switchVideo = async (newState: VideoState, force = false) => {
+    console.log(`🎬 switchVideo called: ${currentVideoState} → ${newState} (force: ${force})`)
+    
+    if (currentVideoState === newState && !force) {
+      console.log(`⚠️ Already on ${newState}, skipping switch`)
+      return
+    }
+
+    console.log(`🎬 Starting video switch from ${currentVideoState} to ${newState}`)
+
+    // Fade out
+    setVideoOpacity(0)
+    console.log(`🎬 Fade out started`)
+    
+    // Wait for fade out to complete
+    await new Promise(resolve => setTimeout(resolve, 300))
+    console.log(`🎬 Fade out completed`)
+    
+    // Change video source
+    setCurrentVideoState(newState)
+    console.log(`🎬 State changed to: ${newState}`)
+    
+    if (videoRef.current) {
+      console.log(`🎬 Setting video src to: ${VIDEO_SOURCES[newState]}`)
+      videoRef.current.src = VIDEO_SOURCES[newState]
+      videoRef.current.currentTime = 0
+      
+      // Configure video loop based on state
+      if (newState === "saying" || newState === "default") {
+        videoRef.current.loop = true
+        console.log(`🎬 Loop enabled for ${newState}`)
+      } else {
+        videoRef.current.loop = false
+        console.log(`🎬 Loop disabled for ${newState}`)
+      }
+      
+      videoRef.current.load()
+      console.log(`🎬 Video loaded`)
+      
+      // Auto-play the video after switching
+      try {
+        await videoRef.current.play()
+        console.log(`✅ ${newState} video started playing successfully`)
+        setIsVideoPlaying(true)
+      } catch (error) {
+        console.log(`⚠️ ${newState} video autoplay blocked:`, error)
+        // Video autoplay might be blocked, but that's okay
+      }
+    } else {
+      console.log(`❌ videoRef.current is null!`)
+    }
+    
+    // Fade in
+    console.log(`🎬 Starting fade in`)
+    setTimeout(() => {
+      setVideoOpacity(1)
+      console.log(`✅ Fade in completed for ${newState}`)
+    }, 50)
+  }
 
   const startProcessingTimer = () => {
     processingStartTime.current = Date.now()
@@ -110,6 +220,9 @@ export default function AIVoiceChat() {
       setIsProcessing(true)
       setStatusMessage("debug: กำลังส่งไปยัง AI และรอการประมวลผล...")
       startProcessingTimer()
+      
+      // Switch to thinking video during processing
+      switchVideo("thinking")
     }
   }
 
@@ -154,8 +267,8 @@ export default function AIVoiceChat() {
         const errorMessage = data.error || "ไม่ได้รับเสียงตอบกลับ"
         setStatusMessage(errorMessage)
 
-        // Still play video without audio
-        await playVideoOnly()
+        // Switch back to default video for error case
+        await switchVideo("default", true)
       }
 
       // Clear status message after 3 seconds
@@ -182,8 +295,8 @@ export default function AIVoiceChat() {
 
       setStatusMessage(errorMessage)
 
-      // Fallback: play video only
-      await playVideoOnly()
+      // Switch back to default video for error case
+      await switchVideo("default", true)
 
       // Clear error message after 5 seconds
       setTimeout(() => {
@@ -196,58 +309,21 @@ export default function AIVoiceChat() {
     }
   }
 
-  const playVideoOnly = async () => {
-    try {
-      setIsVideoPlaying(true)
-      if (videoRef.current) {
-        // Reset video to beginning
-        videoRef.current.currentTime = 0
 
-        // Try to play video with proper error handling
-        try {
-          await videoRef.current.play()
-          console.log("Video started playing successfully")
-        } catch (playError) {
-          console.log("Video autoplay blocked, will play silently")
-          // Video autoplay is blocked, but we can still show the visual
-          // The video element will show the first frame
-        }
-      }
-
-      // Stop video after 3 seconds
-      setTimeout(() => {
-        setIsVideoPlaying(false)
-        if (videoRef.current) {
-          try {
-            const pausePromise = videoRef.current.pause()
-            if (pausePromise && typeof pausePromise.catch === "function") {
-              pausePromise.catch(() => {
-                // Ignore pause errors
-              })
-            }
-          } catch (error) {
-            // Ignore pause errors
-          }
-        }
-      }, 3000)
-    } catch (error) {
-      console.error("Error playing video:", error)
-      setIsVideoPlaying(false)
-    }
-  }
 
   const playAIResponse = async (audioUrl: string) => {
     try {
       console.log("Playing AI response with audio URL:", audioUrl)
+      
+      // Switch to AI saying video
+      await switchVideo("saying")
       setIsVideoPlaying(true)
 
-      // Prepare and play video
+      // Play the video
       if (videoRef.current) {
-        videoRef.current.currentTime = 0
-
         try {
           await videoRef.current.play()
-          console.log("Video started playing successfully")
+          console.log("AI saying video started playing successfully")
         } catch (videoError) {
           console.log("Video autoplay blocked:", videoError)
           // Continue with audio even if video fails
@@ -256,6 +332,18 @@ export default function AIVoiceChat() {
 
       // Prepare and play audio from n8n response
       if (audioRef.current && audioUrl) {
+        // Clear any existing timeout
+        if (audioEndedTimeoutRef.current) {
+          clearTimeout(audioEndedTimeoutRef.current)
+          audioEndedTimeoutRef.current = null
+        }
+
+        // Clear any existing event listeners first
+        audioRef.current.onerror = null
+        audioRef.current.onloadstart = null
+        audioRef.current.oncanplay = null
+        audioRef.current.onended = null
+
         // Set up audio
         audioRef.current.src = audioUrl
         audioRef.current.currentTime = 0
@@ -264,6 +352,9 @@ export default function AIVoiceChat() {
         audioRef.current.onerror = (e) => {
           console.error("Audio playback error:", e)
           console.error("Failed to load audio from:", audioUrl)
+          // Switch back to default on error
+          switchVideo("default", true)
+          setIsVideoPlaying(false)
         }
 
         audioRef.current.onloadstart = () => {
@@ -275,22 +366,31 @@ export default function AIVoiceChat() {
         }
 
         audioRef.current.onended = () => {
-          console.log("Audio playback ended")
+          console.log("🎵 Audio playback ended - switching back to default video")
+          console.log(`🎵 Current video state before switch: ${currentVideoState}`)
           setIsVideoPlaying(false)
+          
+          // Stop current video and disable loop immediately
           if (videoRef.current) {
             try {
-              const pausePromise = videoRef.current.pause()
-              if (pausePromise && typeof pausePromise.catch === "function") {
-                pausePromise.catch(() => {
-                  // Ignore pause errors
-                })
-              }
+              console.log(`🎬 Video element src before pause: ${videoRef.current.src}`)
+              console.log(`🎬 Video element paused status: ${videoRef.current.paused}`)
+              videoRef.current.loop = false // Stop looping immediately
+              videoRef.current.pause()
+              console.log("🎬 AI saying video paused and loop disabled")
             } catch (error) {
-              // Ignore pause errors
+              console.log("❌ Error pausing video:", error)
             }
-            // Reset video to the beginning after audio ends
-            videoRef.current.currentTime = 0
+          } else {
+            console.log("❌ videoRef.current is null in onended!")
           }
+          
+          // Small delay before switching to ensure video is properly stopped
+          setTimeout(() => {
+            console.log("🔄 Switching to default video...")
+            console.log(`🔄 Video state before switchVideo call: ${currentVideoState}`)
+            switchVideo("default", true) // Force switch to default
+          }, 100)
         }
 
         try {
@@ -298,49 +398,24 @@ export default function AIVoiceChat() {
           console.log("Audio started playing successfully")
         } catch (audioError) {
           console.log("Audio autoplay blocked:", audioError)
-          // If audio fails, stop video after 3 seconds and reset position
-          setTimeout(() => {
+          // If audio fails, switch back to default after 3 seconds
+          audioEndedTimeoutRef.current = setTimeout(() => {
             setIsVideoPlaying(false)
-            if (videoRef.current) {
-              try {
-                const pausePromise = videoRef.current.pause()
-                if (pausePromise && typeof pausePromise.catch === "function") {
-                  pausePromise.catch(() => {
-                    // Ignore pause errors
-                  })
-                }
-              } catch (error) {
-                // Ignore pause errors
-              }
-              // Reset video to the beginning
-              videoRef.current.currentTime = 0
-            }
+            switchVideo("default", true)
           }, 3000)
         }
       } else {
         console.log("No audio URL provided")
-        // If no audio URL, stop video after 3 seconds and reset position
-        setTimeout(() => {
+        // If no audio URL, switch back to default after 3 seconds
+        audioEndedTimeoutRef.current = setTimeout(() => {
           setIsVideoPlaying(false)
-          if (videoRef.current) {
-            try {
-              const pausePromise = videoRef.current.pause()
-              if (pausePromise && typeof pausePromise.catch === "function") {
-                pausePromise.catch(() => {
-                  // Ignore pause errors
-                })
-              }
-            } catch (error) {
-              // Ignore pause errors
-            }
-            // Reset video to the beginning
-            videoRef.current.currentTime = 0
-          }
+          switchVideo("default", true)
         }, 3000)
       }
     } catch (error) {
       console.error("Error playing AI response:", error)
       setIsVideoPlaying(false)
+      switchVideo("default", true)
     }
   }
 
@@ -349,15 +424,23 @@ export default function AIVoiceChat() {
     if (isRecording) {
       stopRecording()
     } else {
-      // Enable media playback on first interaction
+      // Enable media playback and ensure default video is playing
       try {
         if (videoRef.current) {
-          // Try to play and immediately pause to enable future playback
-          const playPromise = videoRef.current.play()
-          if (playPromise !== undefined) {
-            await playPromise
-            videoRef.current.pause()
+          // If video is paused, try to play the default video
+          if (videoRef.current.paused) {
+            console.log("Starting default video playback...")
+            videoRef.current.src = VIDEO_SOURCES.default
             videoRef.current.currentTime = 0
+            videoRef.current.loop = true
+            videoRef.current.load()
+            
+            const playPromise = videoRef.current.play()
+            if (playPromise !== undefined) {
+              await playPromise
+              console.log("Default video started playing after user interaction")
+              setIsVideoPlaying(true)
+            }
           }
         }
 
@@ -395,13 +478,15 @@ export default function AIVoiceChat() {
         <div className="relative w-full max-w-sm mx-auto aspect-[9/16] rounded-3xl overflow-hidden">
           <video
             ref={videoRef}
-            className="w-full h-full object-cover"
+            className="w-full h-full object-cover transition-opacity duration-300"
+            style={{ opacity: videoOpacity }}
             muted
+            autoPlay
             playsInline
-            loop={isVideoPlaying}
+            loop={currentVideoState === "saying" || currentVideoState === "default"}
             preload="metadata"
+            src={VIDEO_SOURCES[currentVideoState]}
           >
-            <source src="https://unityx-test.sgp1.digitaloceanspaces.com/kK-buE2QzxtHUHcfnZfKn5PqtCmQ0ORrvSv1mW4MDZw.mov" type="video/mp4" />
             Your browser does not support the video tag.
           </video>
 
