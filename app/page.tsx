@@ -56,7 +56,7 @@ export default function AIVoiceChat() {
   useEffect(() => {
     const initializeDefaultVideo = async () => {
       if (videoRef.current) {
-        console.log("Initializing default video...")
+        console.log("Initializing default video..")
         
         // Set default video source
         videoRef.current.src = VIDEO_SOURCES.default
@@ -206,7 +206,7 @@ export default function AIVoiceChat() {
       // Start recording
       mediaRecorder.start()
       setIsRecording(true)
-      setStatusMessage("debug: กำลังฟังเสียง...")
+      setStatusMessage("debug: กำลังฟังเสียง..")
     } catch (error) {
       console.error("Error starting recording:", error)
       setStatusMessage(`ไม่สามารถเข้าถึงไมโครโฟนได้: ${error instanceof Error ? error.message : "Unknown error"}`)
@@ -218,7 +218,7 @@ export default function AIVoiceChat() {
       mediaRecorderRef.current.stop()
       setIsRecording(false)
       setIsProcessing(true)
-      setStatusMessage("debug: กำลังส่งไปยัง AI และรอการประมวลผล...")
+      setStatusMessage("debug: กำลังส่งไปยัง AI และรอการประมวลผล..")
       startProcessingTimer()
       
       // Switch to thinking video during processing
@@ -244,7 +244,7 @@ export default function AIVoiceChat() {
 
       // Get response text first to handle both JSON and non-JSON responses
       const responseText = await response.text()
-      console.log("API route raw response:", responseText.substring(0, 200) + "...")
+      console.log("API route raw response:", responseText.substring(0, 200) + "..")
 
       let data
       try {
@@ -387,7 +387,7 @@ export default function AIVoiceChat() {
           
           // Small delay before switching to ensure video is properly stopped
           setTimeout(() => {
-            console.log("🔄 Switching to default video...")
+            console.log("🔄 Switching to default video..")
             console.log(`🔄 Video state before switchVideo call: ${currentVideoState}`)
             switchVideo("default", true) // Force switch to default
           }, 100)
@@ -429,7 +429,7 @@ export default function AIVoiceChat() {
         if (videoRef.current) {
           // If video is paused, try to play the default video
           if (videoRef.current.paused) {
-            console.log("Starting default video playback...")
+            console.log("Starting default video playback..")
             videoRef.current.src = VIDEO_SOURCES.default
             videoRef.current.currentTime = 0
             videoRef.current.loop = true
@@ -499,14 +499,14 @@ export default function AIVoiceChat() {
               {isRecording && (
                 <div className="flex items-center space-x-2 bg-red-500/95 text-white px-4 py-2 rounded-full text-sm font-medium shadow-lg backdrop-blur-sm">
                   <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
-                  <span>debug: กำลังฟังเสียง...</span>
+                  <span>debug: กำลังฟังเสียง..</span>
                 </div>
               )}
               {isProcessing && (
                 <div className="flex flex-col items-center space-y-1 bg-blue-500/95 text-white px-4 py-2 rounded-xl text-sm font-medium shadow-lg backdrop-blur-sm">
                   <div className="flex items-center space-x-2">
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>debug: กำลังประมวลผล...</span>
+                    <span>debug: กำลังคิด..</span>
                   </div>
                   {processingTime > 0 && <div className="text-xs opacity-80">{formatTime(processingTime)}</div>}
                 </div>
@@ -514,8 +514,8 @@ export default function AIVoiceChat() {
             </div>
           )}
 
-          {/* Microphone Button - Overlaid at bottom of video */}
-          <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-20">
+          {/* Microphone Button - Overlaid at right upper-center of video */}
+          <div className="absolute right-6 top-1/4 transform -translate-y-1/2 z-20">
             <Button
               onClick={handleUserInteraction}
               disabled={isProcessing}
