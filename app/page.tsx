@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
-import { Mic, Square, Loader2 } from "lucide-react"
+import { Mic, Square, Loader2, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 type VideoState = "default" | "thinking" | "saying"
@@ -517,6 +517,65 @@ export default function AIVoiceChat() {
     return `${mins}:${secs.toString().padStart(2, "0")}`
   }
 
+  const handleRefresh = () => {
+    // Reset all states to initial values
+    setIsRecording(false)
+    setIsProcessing(false)
+    setStatusMessage("")
+    setIsVideoPlaying(false)
+    setProcessingTime(0)
+    setCurrentVideoState("default")
+    setVideoOpacity(1)
+    setIsAudioPlaying(false)
+
+    // Stop any ongoing recording
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop()
+    }
+
+    // Stop any media streams
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop())
+      streamRef.current = null
+    }
+
+    // Stop processing timer
+    stopProcessingTimer()
+
+    // Clear any timeouts
+    if (audioEndedTimeoutRef.current) {
+      clearTimeout(audioEndedTimeoutRef.current)
+      audioEndedTimeoutRef.current = null
+    }
+
+    // Reset video to default
+    if (videoRef.current) {
+      videoRef.current.onended = null
+      videoRef.current.src = VIDEO_SOURCES.default
+      videoRef.current.currentTime = 0
+      videoRef.current.loop = true
+      videoRef.current.load()
+      
+      // Try to play default video
+      videoRef.current.play().catch((error) => {
+        console.log("Video autoplay blocked after refresh:", error)
+      })
+    }
+
+    // Reset audio
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current.currentTime = 0
+      audioRef.current.src = ""
+      audioRef.current.onerror = null
+      audioRef.current.onloadstart = null
+      audioRef.current.oncanplay = null
+      audioRef.current.onended = null
+    }
+
+    console.log("🔄 App refreshed - all states reset")
+  }
+
   return (
     <div className="h-screen w-screen bg-gradient-to-br from-white via-gray-50 to-gray-100 flex flex-col relative overflow-hidden">
       {/* Background Effects - Adjusted for mobile */}
@@ -586,6 +645,17 @@ export default function AIVoiceChat() {
               ) : (
                 <Mic className="w-7 h-7 text-white" />
               )}
+            </Button>
+          </div>
+
+          {/* Refresh Button - Overlaid at bottom right of video */}
+          <div className="absolute bottom-6 right-6 z-20">
+            <Button
+              onClick={handleRefresh}
+              disabled={isProcessing}
+              className="w-10 h-10 rounded-full bg-gray-600/80 hover:bg-gray-500/90 border border-gray-500/40 backdrop-blur-sm transition-all duration-300 hover:scale-105 shadow-lg"
+            >
+              <RefreshCw className="w-4 h-4 text-white" />
             </Button>
           </div>
         </div>
