@@ -20,6 +20,7 @@ export default function AIVoiceChat() {
   const [processingTime, setProcessingTime] = useState(0)
   const [currentVideoState, setCurrentVideoState] = useState<VideoState>("default")
   const [videoOpacity, setVideoOpacity] = useState(1)
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const audioRef = useRef<HTMLAudioElement>(null)
@@ -49,6 +50,12 @@ export default function AIVoiceChat() {
         audioRef.current.oncanplay = null
         audioRef.current.onended = null
       }
+      // Clean up video event listeners
+      if (videoRef.current) {
+        videoRef.current.onended = null
+      }
+      // Reset states
+      setIsAudioPlaying(false)
     }
   }, [])
 
@@ -109,7 +116,7 @@ export default function AIVoiceChat() {
       videoRef.current.currentTime = 0
       
       // Configure video loop based on state
-      if (newState === "saying" || newState === "default") {
+      if (newState === "saying" || newState === "default" || newState === "thinking") {
         videoRef.current.loop = true
         console.log(`🎬 Loop enabled for ${newState}`)
       } else {
@@ -222,6 +229,7 @@ export default function AIVoiceChat() {
       startProcessingTimer()
       
       // Switch to thinking video during processing
+      console.log("🤔 Switching to thinking video (processing started)")
       switchVideo("thinking")
     }
   }
@@ -259,11 +267,13 @@ export default function AIVoiceChat() {
       stopProcessingTimer()
 
       if (data.success && data.audioUrl) {
-        console.log("Received audioUrl from n8n:", data.audioUrl)
+        console.log("✅ Received audioUrl from n8n:", data.audioUrl)
+        console.log("🤔 Thinking completed - switching to AI saying")
         setStatusMessage("debug: ได้รับการตอบกลับจาก n8n แล้ว!")
         await playAIResponse(data.audioUrl)
       } else {
-        console.log("No audioUrl in response or request failed:", data)
+        console.log("❌ No audioUrl in response or request failed:", data)
+        console.log("🤔 Thinking completed with error - switching to default")
         const errorMessage = data.error || "ไม่ได้รับเสียงตอบกลับ"
         setStatusMessage(errorMessage)
 
@@ -296,6 +306,7 @@ export default function AIVoiceChat() {
       setStatusMessage(errorMessage)
 
       // Switch back to default video for error case
+      console.log("🤔 Thinking interrupted by error - switching to default")
       await switchVideo("default", true)
 
       // Clear error message after 5 seconds
@@ -313,14 +324,33 @@ export default function AIVoiceChat() {
 
   const playAIResponse = async (audioUrl: string) => {
     try {
-      console.log("Playing AI response with audio URL:", audioUrl)
+      console.log("🗣️ Playing AI response with audio URL:", audioUrl)
       
       // Switch to AI saying video
+      console.log("🤔➡️🗣️ Switching from thinking to AI saying")
       await switchVideo("saying")
       setIsVideoPlaying(true)
 
-      // Play the video
+      // Set up video event listeners for continuous loop during audio
       if (videoRef.current) {
+        // Clear any existing video event listeners
+        videoRef.current.onended = null
+        
+        // Add video ended listener to restart video if audio is still playing
+        videoRef.current.onended = () => {
+          console.log("🎬 AI saying video ended")
+          console.log(`🎵 Audio still playing: ${isAudioPlaying}`)
+          if (isAudioPlaying && videoRef.current) {
+            console.log("🔄 Restarting AI saying video (audio still playing)")
+            videoRef.current.currentTime = 0
+            videoRef.current.play().catch((error) => {
+              console.log("❌ Error restarting video:", error)
+            })
+          } else {
+            console.log("🎬 Video ended, audio finished - no restart needed")
+          }
+        }
+
         try {
           await videoRef.current.play()
           console.log("AI saying video started playing successfully")
@@ -352,9 +382,14 @@ export default function AIVoiceChat() {
         audioRef.current.onerror = (e) => {
           console.error("Audio playback error:", e)
           console.error("Failed to load audio from:", audioUrl)
-          // Switch back to default on error
-          switchVideo("default", true)
+          // Mark audio as not playing and switch back to default on error
+          setIsAudioPlaying(false)
           setIsVideoPlaying(false)
+          // Clean up video event listener
+          if (videoRef.current) {
+            videoRef.current.onended = null
+          }
+          switchVideo("default", true)
         }
 
         audioRef.current.onloadstart = () => {
@@ -368,6 +403,10 @@ export default function AIVoiceChat() {
         audioRef.current.onended = () => {
           console.log("🎵 Audio playback ended - switching back to default video")
           console.log(`🎵 Current video state before switch: ${currentVideoState}`)
+          console.log("🎵 Setting isAudioPlaying to false")
+          
+          // Mark audio as not playing anymore
+          setIsAudioPlaying(false)
           setIsVideoPlaying(false)
           
           // Stop current video and disable loop immediately
@@ -375,6 +414,7 @@ export default function AIVoiceChat() {
             try {
               console.log(`🎬 Video element src before pause: ${videoRef.current.src}`)
               console.log(`🎬 Video element paused status: ${videoRef.current.paused}`)
+              videoRef.current.onended = null // Remove video event listener
               videoRef.current.loop = false // Stop looping immediately
               videoRef.current.pause()
               console.log("🎬 AI saying video paused and loop disabled")
@@ -395,10 +435,16 @@ export default function AIVoiceChat() {
 
         try {
           await audioRef.current.play()
-          console.log("Audio started playing successfully")
+          console.log("🎵 Audio started playing successfully")
+          console.log("🎵 Setting isAudioPlaying to true")
+          setIsAudioPlaying(true) // Mark audio as playing
         } catch (audioError) {
           console.log("Audio autoplay blocked:", audioError)
           // If audio fails, switch back to default after 3 seconds
+          setIsAudioPlaying(false)
+          if (videoRef.current) {
+            videoRef.current.onended = null
+          }
           audioEndedTimeoutRef.current = setTimeout(() => {
             setIsVideoPlaying(false)
             switchVideo("default", true)
@@ -407,6 +453,10 @@ export default function AIVoiceChat() {
       } else {
         console.log("No audio URL provided")
         // If no audio URL, switch back to default after 3 seconds
+        setIsAudioPlaying(false)
+        if (videoRef.current) {
+          videoRef.current.onended = null
+        }
         audioEndedTimeoutRef.current = setTimeout(() => {
           setIsVideoPlaying(false)
           switchVideo("default", true)
@@ -414,7 +464,11 @@ export default function AIVoiceChat() {
       }
     } catch (error) {
       console.error("Error playing AI response:", error)
+      setIsAudioPlaying(false)
       setIsVideoPlaying(false)
+      if (videoRef.current) {
+        videoRef.current.onended = null
+      }
       switchVideo("default", true)
     }
   }
@@ -483,7 +537,7 @@ export default function AIVoiceChat() {
             muted
             autoPlay
             playsInline
-            loop={currentVideoState === "saying" || currentVideoState === "default"}
+            loop={currentVideoState === "saying" || currentVideoState === "default" || currentVideoState === "thinking"}
             preload="metadata"
             src={VIDEO_SOURCES[currentVideoState]}
           >
